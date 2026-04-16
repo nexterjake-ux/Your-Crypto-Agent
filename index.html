@@ -269,7 +269,7 @@
   <!-- CHARTS -->
   <div class="charts-row">
     <div class="chart-card">
-      <div class="card-title">자산 비중</div>
+      <div class="card-title" id="donutTitle">자산 비중</div>
       <div class="donut-wrap">
         <svg width="120" height="120" viewBox="0 0 120 120" id="donutSvg">
           <circle cx="60" cy="60" r="48" fill="none" stroke="#16162a" stroke-width="20"/>
@@ -280,7 +280,7 @@
       </div>
     </div>
     <div class="chart-card">
-      <div class="card-title">출처별 분포</div>
+      <div class="card-title" id="barTitle">출처별 분포</div>
       <div class="bar-chart" id="sourceBarChart"></div>
     </div>
   </div>
@@ -418,6 +418,28 @@
           </select>
         </div>
       </div>
+        <div class="form-group">
+          <label>네트워크</label>
+          <select id="addNftNetwork" style="width:110px">
+            <option value="ETH">Ethereum</option>
+            <option value="SOL">Solana</option>
+            <option value="MATIC">Polygon</option>
+            <option value="BNB">BNB Chain</option>
+            <option value="AVAX">Avalanche</option>
+            <option value="APT">Aptos</option>
+            <option value="SUI">Sui</option>
+            <option value="OTHER">기타</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>보유 수량</label>
+          <input type="number" id="addNftQty" placeholder="예: 2" step="1" min="1" style="width:80px">
+        </div>
+        <div class="form-group">
+          <label>진입 평균가 (개당, 코인 단위)</label>
+          <input type="number" id="addNftEntry" placeholder="예: 0.3" step="any" style="width:130px">
+        </div>
+        <div style="font-size:11px;color:var(--muted);align-self:flex-end;padding-bottom:10px">바닥가는 네트워크 코인 실시간 가격으로 자동 계산됩니다<br>ETH·SOL·MATIC·BNB·AVAX·SUI</div>
       </div>
       <!-- 공통: 진입가 -->
       <div class="form-group" id="commonEntryField">
@@ -476,17 +498,16 @@
         <option value="weekly">매주</option>
         <option value="monthly">매월</option>
         <option value="quarterly">분기 (3개월마다)</option>
-        <option value="yearly">연 (1년마다)</option>
-        <option value="custom">특정 일자 직접입력</option>
       </select>
     </div>
-    <div id="interestCustomDateWrap" style="display:none;margin-bottom:2px">
-      <div class="modal-label">직접 입력 (예: 매월 15일, 매주 금요일)</div>
-      <input type="text" id="yieldModalInterestCustom" placeholder="예: 매월 15일, 매주 금요일">
+    <!-- 매주/매월/분기만 지급일 표시 -->
+    <div id="interestDateWrap" style="display:none">
+      <div class="modal-label">이자 지급일</div>
+      <input type="date" id="yieldModalInterestDate" style="width:100%">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">📌 지급일에 이자가 원금에 합산되어 복리로 계산됩니다</div>
     </div>
-    <div class="modal-label">이자 지급일 (복리 기산일)</div>
-    <input type="date" id="yieldModalInterestDate" placeholder="이자 첫 지급일">
-    <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-bottom:4px">📌 지급일에 발생 이자가 원금에 합산되어 복리로 계산됩니다</div>
+    <div class="modal-label">사이트 URL (선택)</div>
+    <input type="text" id="yieldModalUrl" placeholder="예: https://app.ether.fi">
     <div class="modal-label">메모 (선택)</div>
     <input type="text" id="yieldModalNote" placeholder="예: 매주 금요일 갱신">
     <div class="modal-btns">
@@ -634,15 +655,29 @@ function renderAll(){
 }
 
 // ── 상단 총합 ─────────────────────────────────────────
+function calcDefiTotal(){
+  let defiUsd=0;
+  yieldData.forEach(y=>{
+    if(!y.depositQty) return;
+    const sym=(y.assetSym||'').toUpperCase();
+    const p=prices[sym];
+    const usd=isStable(sym)||!sym?y.depositQty:(p?p.usd*y.depositQty:0);
+    defiUsd+=usd;
+  });
+  return defiUsd;
+}
+
 function renderTotals(){
-  let total=0,cex=0,defi=0,changeSum=0,changeW=0,pnlTotal=0,hasPnl=false;
+  let cex=0,changeSum=0,changeW=0,pnlTotal=0,hasPnl=false;
   assets.forEach(a=>{
     const p=prices[a.symbol.toUpperCase()]; if(!p) return;
-    const v=p.usd*a.qty; total+=v;
-    if(a.type==='defi') defi+=v; else cex+=v;
+    const v=p.usd*a.qty;
+    cex+=v;
     changeSum+=p.change24h*v; changeW+=v;
     if(a.entryPrice){ pnlTotal+=(p.usd-a.entryPrice)*a.qty; hasPnl=true; }
   });
+  const defi=calcDefiTotal();
+  const total=cex+defi;
   document.getElementById('totalValue').textContent=fmtUSD(total);
   document.getElementById('cexTotal').textContent=fmtUSD(cex);
   document.getElementById('defiTotal').textContent=fmtUSD(defi);
@@ -704,17 +739,18 @@ function renderDefiSummary(){
 
 // ── 통합 요약 ─────────────────────────────────────────
 function renderAllSummary(){
-  let total=0,stableTotal=0,volTotal=0,pnl=0,hasPnl=false;
+  let cexTotal=0,pnl=0,hasPnl=false;
   assets.forEach(a=>{
     const p=prices[a.symbol.toUpperCase()]; if(!p) return;
-    const v=p.usd*a.qty; total+=v;
-    if(isStable(a.symbol)) stableTotal+=v; else volTotal+=v;
+    const v=p.usd*a.qty; cexTotal+=v;
     if(a.entryPrice){pnl+=(p.usd-a.entryPrice)*a.qty;hasPnl=true;}
   });
+  const defiTotal=calcDefiTotal();
+  const grandTotal=cexTotal+defiTotal;
   document.getElementById('allSummary').innerHTML=`
-    <div class="sum-card"><div class="sum-label">전체 총자산</div><div class="sum-value">${fmtUSD(total)}</div></div>
-    <div class="sum-card"><div class="sum-label">스테이블 자산</div><div class="sum-value green">${fmtUSD(stableTotal)}</div></div>
-    <div class="sum-card"><div class="sum-label">변동성 자산</div><div class="sum-value cyan">${fmtUSD(volTotal)}</div></div>
+    <div class="sum-card"><div class="sum-label">거래소(+지갑)</div><div class="sum-value">${fmtUSD(cexTotal)}</div></div>
+    <div class="sum-card"><div class="sum-label">DeFi 포지션</div><div class="sum-value green">${fmtUSD(defiTotal)}</div></div>
+    <div class="sum-card"><div class="sum-label">총 평가 자산</div><div class="sum-value cyan">${fmtUSD(grandTotal)}</div></div>
     <div class="sum-card"><div class="sum-label">총 미실현 손익</div><div class="sum-value ${hasPnl?(pnl>=0?'green':''):''}"> ${hasPnl?(pnl>=0?'+':'')+fmtUSD(Math.abs(pnl)):'--'}</div></div>`;
 }
 
@@ -808,8 +844,7 @@ function togglePriceMask(key){ maskedPrice[key]=!maskedPrice[key]; renderYieldGr
 function renderYieldGrid(){
   const grid=document.getElementById('yieldGrid');
   if(!yieldData.length){
-    grid.innerHTML='<div style="padding:32px;color:var(--muted);font-size:13px;text-align:center">등록된 프로토콜이 없습니다.</div>'
-      +`<div class="add-yield-row" onclick="openYieldModalNew()"><span style="font-size:16px">+</span> 프로토콜 추가</div>`;
+    grid.innerHTML='<div style="padding:32px;color:var(--muted);font-size:13px;text-align:center">등록된 프로토콜이 없습니다.</div>';
     document.getElementById('yieldTotalBar').innerHTML='';
     return;
   }
@@ -913,16 +948,25 @@ function renderYieldGrid(){
     const depositUsdStr=depositUsd?(maskedPrice[rowClass==='stable-row'?'stable':'volatile']?'••••••':fmtUSD(depositUsd)):'--';
     const monthly=y.apy!=null&&depositUsd?fmtUSD(depositUsd*y.apy/100/12)+'/월':'--';
     const apyTypeLabel=y.apyType||'APY';
-    const cycleLabel={daily:'매일',weekly:'매주',monthly:'매월',quarterly:'분기',yearly:'연',custom:y.interestCycleCustom||'직접입력'}[y.interestCycle]||'';
-    const compound=calcCompoundYield(y.depositQty,y.apy,y.interestCycle,y.interestDate);
+    const cycleLabel={daily:'매일',weekly:'매주',monthly:'매월',quarterly:'분기'}[y.interestCycle]||'';
+    const compound=calcCompoundYield(y.depositQty,y.apy,y.interestCycle,y.interestDay);
     const compoundBadge=compound?`<div class="compound-badge">📈 +${isMasked?'••••••':fmtQty(compound.earned,sym)+' '+sym}</div>`:'';
+    // 다음 지급일 + D-day (매주/매월/분기만)
+    let payBadge='';
+    if(['weekly','monthly','quarterly'].includes(y.interestCycle)&&y.interestDate){
+      const next=calcNextPayDate(y.interestCycle,y.interestDate);
+      const dday=calcDday(next);
+      const ddayStr=dday===0?'🎉 오늘!':dday===1?'D-1 내일':`D-${dday}`;
+      const ddayColor=dday===0?'var(--accent3)':dday<=3?'#f59e0b':'var(--muted)';
+      payBadge=`<div style="font-size:10px;margin-top:3px;font-family:var(--mono)">📅 다음 지급: ${fmtDateKo(next)} <span style="color:${ddayColor};font-weight:700">${ddayStr}</span></div>`;
+    }
     const cycleBadge=cycleLabel?`<div style="font-size:10px;color:var(--accent2);margin-top:2px;font-family:var(--mono)">⏱${cycleLabel}</div>`:'';
     return `<div class="yield-row ${rowClass} yield-cols" style="${colStyle}">
       <div class="yield-protocol">
         <div class="yield-logo" style="background:${y.logoColor}22;color:${y.logoColor}">${y.logo||'??'}</div>
-        <div><div class="yield-name">${y.name}</div><span class="yield-badge ${badgeClass}">${badgeText}</span></div>
+        <div><div class="yield-name">${y.name}${y.url?` <a href="${y.url}" target="_blank" style="font-size:10px;color:var(--accent2);text-decoration:none;vertical-align:middle" title="${y.url}">🔗</a>`:''}</div><span class="yield-badge ${badgeClass}">${badgeText}</span></div>
       </div>
-      <div><div style="font-size:12px;color:var(--text)">${y.pool}</div>${cycleBadge}</div>
+      <div><div style="font-size:12px;color:var(--text)">${y.pool}</div>${cycleBadge}${payBadge}</div>
       <div><div class="yield-apy-row ${apyClass}">${apyDisplay}</div><div class="yield-apy-sub">${apyTypeLabel}</div></div>
       <div class="ycol-deposit"><div class="ymv">${sym||'--'}</div><div class="yml">${depositUsdStr}</div></div>
       <div class="ycol-monthly">
@@ -973,10 +1017,53 @@ function renderYieldGrid(){
 function renderDonut(){
   const svg=document.getElementById('donutSvg'), legend=document.getElementById('donutLegend');
   const bySymbol={};
-  assets.forEach(a=>{ const p=prices[a.symbol.toUpperCase()]; if(!p) return; bySymbol[a.symbol]=(bySymbol[a.symbol]||0)+p.usd*a.qty; });
+  let centerLabel='';
+
+  if(currentMainTab==='cex'){
+    // 거래소+지갑 자산별 비중
+    assets.filter(a=>a.type==='cex'||a.type==='wallet').forEach(a=>{
+      const p=prices[a.symbol.toUpperCase()]; if(!p) return;
+      bySymbol[a.symbol]=(bySymbol[a.symbol]||0)+p.usd*a.qty;
+    });
+    centerLabel=[...new Set(assets.filter(a=>a.type==='cex'||a.type==='wallet').map(a=>a.symbol))].length+'종';
+  } else if(currentMainTab==='defi'){
+    // DeFi 프로토콜별 비중 (yieldData 예치금 기준)
+    yieldData.forEach(y=>{
+      if(!y.depositQty) return;
+      const sym=(y.assetSym||'').toUpperCase();
+      const p=prices[sym];
+      const usd=isStable(sym)||!sym?y.depositQty:(p?p.usd*y.depositQty:0);
+      if(!usd) return;
+      bySymbol[y.name]=(bySymbol[y.name]||0)+usd;
+    });
+    centerLabel=yieldData.length+'개';
+  } else {
+    // 통합: 거래소+지갑 + DeFi 예치금
+    assets.forEach(a=>{
+      const p=prices[a.symbol.toUpperCase()]; if(!p) return;
+      bySymbol[a.symbol]=(bySymbol[a.symbol]||0)+p.usd*a.qty;
+    });
+    yieldData.forEach(y=>{
+      if(!y.depositQty) return;
+      const sym=(y.assetSym||'').toUpperCase();
+      const p=prices[sym];
+      const usd=isStable(sym)||!sym?y.depositQty:(p?p.usd*y.depositQty:0);
+      if(!usd) return;
+      // DeFi는 프로토콜명으로 표시
+      bySymbol[y.name]=(bySymbol[y.name]||0)+usd;
+    });
+    centerLabel='통합';
+  }
+
+  // 제목 업데이트
+  const titles={cex:['자산 비중','거래소별 분포'],defi:['프로토콜 비중','자산 종류별 분포'],all:['전체 비중','유형별 분포']};
+  const [dt,bt]=titles[currentMainTab]||titles.cex;
+  document.getElementById('donutTitle').textContent=dt;
+  document.getElementById('barTitle').textContent=bt;
+
   const total=Object.values(bySymbol).reduce((s,v)=>s+v,0);
-  if(!total){legend.innerHTML='';return;}
-  document.getElementById('donutCenter').textContent=Object.keys(bySymbol).length+'종';
+  if(!total){legend.innerHTML='';svg.querySelectorAll('.arc').forEach(e=>e.remove());return;}
+  document.getElementById('donutCenter').textContent=centerLabel;
   const entries=Object.entries(bySymbol).sort((a,b)=>b[1]-a[1]).slice(0,6);
   const r=48,cx=60,cy=60,stroke=20,circ=2*Math.PI*r;
   svg.querySelectorAll('.arc').forEach(e=>e.remove());
@@ -990,16 +1077,54 @@ function renderDonut(){
     c.setAttribute('stroke-dashoffset',circ/4-offset);
     svg.insertBefore(c,svg.querySelector('text')); offset+=dashLen;
   });
-  legend.innerHTML=entries.map(([sym,val],i)=>`<div class="legend-item"><span class="legend-dot" style="background:${ASSET_COLORS[i%ASSET_COLORS.length]}"></span><span class="legend-name">${sym}</span><span class="legend-pct">${(val/total*100).toFixed(1)}%</span></div>`).join('');
+  // DeFi 탭이면 범례에 🔗 버튼 추가
+  if(currentMainTab==='defi'){
+    const urlMap={};
+    yieldData.forEach(y=>{ if(y.url) urlMap[y.name]=y.url; });
+    legend.innerHTML=entries.map(([name,val],i)=>`<div class="legend-item"><span class="legend-dot" style="background:${ASSET_COLORS[i%ASSET_COLORS.length]}"></span><span class="legend-name">${name}${urlMap[name]?` <a href="${urlMap[name]}" target="_blank" style="font-size:10px;color:var(--accent2);text-decoration:none">🔗</a>`:''}</span><span class="legend-pct">${(val/total*100).toFixed(1)}%</span></div>`).join('');
+  } else {
+    legend.innerHTML=entries.map(([sym,val],i)=>`<div class="legend-item"><span class="legend-dot" style="background:${ASSET_COLORS[i%ASSET_COLORS.length]}"></span><span class="legend-name">${sym}</span><span class="legend-pct">${(val/total*100).toFixed(1)}%</span></div>`).join('');
+  }
 }
 
 function renderSourceBars(){
-  const c=document.getElementById('sourceBarChart'), bySource={};
-  assets.forEach(a=>{ const p=prices[a.symbol.toUpperCase()]; if(!p) return; bySource[a.source]=(bySource[a.source]||0)+p.usd*a.qty; });
+  const c=document.getElementById('sourceBarChart');
+  const bySource={};
+
+  if(currentMainTab==='cex'){
+    // 거래소/지갑별 분포 (현재와 동일)
+    assets.filter(a=>a.type==='cex'||a.type==='wallet').forEach(a=>{
+      const p=prices[a.symbol.toUpperCase()]; if(!p) return;
+      bySource[a.source]=(bySource[a.source]||0)+p.usd*a.qty;
+    });
+  } else if(currentMainTab==='defi'){
+    // 자산 종류별 분포 (yieldData 예치금 기준)
+    yieldData.forEach(y=>{
+      if(!y.depositQty) return;
+      const sym=(y.assetSym||'').toUpperCase();
+      const p=prices[sym];
+      const usd=isStable(sym)||!sym?y.depositQty:(p?p.usd*y.depositQty:0);
+      if(!usd) return;
+      bySource[sym||'기타']=(bySource[sym||'기타']||0)+usd;
+    });
+  } else {
+    // 통합: 거래소+지갑 vs DeFi 두 덩어리
+    let cexTotal=0;
+    assets.forEach(a=>{
+      const p=prices[a.symbol.toUpperCase()]; if(!p) return;
+      cexTotal+=p.usd*a.qty;
+    });
+    const defiTotal=calcDefiTotal();
+    if(cexTotal) bySource['거래소+지갑']=cexTotal;
+    if(defiTotal) bySource['DeFi 예치금']=defiTotal;
+  }
+
   const total=Object.values(bySource).reduce((s,v)=>s+v,0);
   if(!total){c.innerHTML='';return;}
   c.innerHTML=Object.entries(bySource).sort((a,b)=>b[1]-a[1]).map(([src,val])=>{
-    const pct=(val/total*100).toFixed(1), color=getSourceColor(src);
+    const pct=(val/total*100).toFixed(1);
+    const color=currentMainTab==='defi'?ASSET_COLORS[Object.keys(bySource).indexOf(src)%ASSET_COLORS.length]:
+                currentMainTab==='all'?(src==='거래소+지갑'?'#7c3aed':'#06b6d4'):getSourceColor(src);
     return `<div class="bar-row"><div class="bar-label">${src}</div><div class="bar-track"><div class="bar-fill" style="width:0%;background:${color}" data-w="${pct}"></div></div><div class="bar-val">${fmtUSD(val)}</div></div>`;
   }).join('');
   requestAnimationFrame(()=>{ c.querySelectorAll('.bar-fill').forEach(el=>requestAnimationFrame(()=>el.style.width=el.dataset.w+'%')); });
@@ -1013,6 +1138,8 @@ function switchTab(tab,btn){
   document.getElementById('cexPanel').style.display=tab==='cex'?'':'none';
   document.getElementById('defiPanel').style.display=tab==='defi'?'':'none';
   document.getElementById('allPanel').style.display=tab==='all'?'':'none';
+  renderDonut();
+  renderSourceBars();
 }
 
 function setFilter(f,btn){
@@ -1116,10 +1243,11 @@ function openYieldModal(id){
   document.getElementById('yieldModalAssetSym').value=y.assetSym||'';
   document.getElementById('yieldModalDeposit').value=y.depositQty??'';
   document.getElementById('yieldModalNote').value=y.note||'';
+  document.getElementById('yieldModalUrl').value=y.url||'';
   document.getElementById('yieldModalInterestCycle').value=y.interestCycle||'';
-  document.getElementById('yieldModalInterestCustom').value=y.interestCycleCustom||'';
   document.getElementById('yieldModalInterestDate').value=y.interestDate||'';
-  document.getElementById('interestCustomDateWrap').style.display=(y.interestCycle==='custom')?'block':'none';
+  const showDate=['weekly','monthly','quarterly'].includes(y.interestCycle||'');
+  document.getElementById('interestDateWrap').style.display=showDate?'':'none';
   editingApyType=y.apyType||'APY';
   document.querySelectorAll('.apy-type-btn').forEach(b=>b.classList.toggle('active',b.textContent===editingApyType));
   document.getElementById('yieldModal').classList.add('open');
@@ -1128,12 +1256,13 @@ function openYieldModal(id){
 function openYieldModalNew(){
   editingYieldId='__new__';
   document.getElementById('yieldModalTitle').textContent='프로토콜 추가';
-  ['yieldModalName','yieldModalPool','yieldModalAssetSym','yieldModalNote','yieldModalInterestCustom','yieldModalInterestDate'].forEach(id=>document.getElementById(id).value='');
+  ['yieldModalName','yieldModalPool','yieldModalAssetSym','yieldModalNote','yieldModalUrl'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('yieldModalApy').value='';
   document.getElementById('yieldModalApy').disabled=false;
   document.getElementById('yieldModalDeposit').value='';
   document.getElementById('yieldModalInterestCycle').value='';
-  document.getElementById('interestCustomDateWrap').style.display='none';
+  document.getElementById('yieldModalInterestDate').value='';
+  document.getElementById('interestDateWrap').style.display='none';
   editingApyType='APY';
   document.querySelectorAll('.apy-type-btn').forEach((b,i)=>b.classList.toggle('active',i===0));
   document.getElementById('yieldModal').classList.add('open');
@@ -1148,8 +1277,8 @@ function saveYieldModal(){
   const assetSym=document.getElementById('yieldModalAssetSym').value.trim().toUpperCase();
   const depositQty=parseFloat(document.getElementById('yieldModalDeposit').value)||null;
   const note=document.getElementById('yieldModalNote').value.trim();
+  const url=document.getElementById('yieldModalUrl').value.trim();
   const interestCycle=document.getElementById('yieldModalInterestCycle').value;
-  const interestCycleCustom=document.getElementById('yieldModalInterestCustom').value.trim();
   const interestDate=document.getElementById('yieldModalInterestDate').value;
 
   if(editingYieldId==='__new__'){
@@ -1157,16 +1286,16 @@ function saveYieldModal(){
     const id='custom_'+Date.now();
     const initials=name.replace(/[^A-Za-z0-9]/g,'').slice(0,2).toUpperCase()||'??';
     yieldData.push({id,name,pool:pool||'직접입력',logo:initials,logoColor:'#64748b',mode:'manual',
-      apy,apyType:editingApyType,assetSym,depositQty,tvlUsd:null,note,
-      interestCycle,interestCycleCustom,interestDate,
+      apy,apyType:editingApyType,assetSym,depositQty,tvlUsd:null,note,url,
+      interestCycle,interestDate,
       updatedAt:new Date().toLocaleTimeString('ko-KR')});
   } else {
     const y=yieldData.find(x=>x.id===editingYieldId); if(!y) return;
     y.name=name||y.name; y.pool=pool||y.pool;
     if(y.mode==='manual') y.apy=apy;
     y.apyType=editingApyType; y.assetSym=assetSym; y.depositQty=depositQty;
-    y.note=note; y.updatedAt=new Date().toLocaleTimeString('ko-KR');
-    y.interestCycle=interestCycle; y.interestCycleCustom=interestCycleCustom; y.interestDate=interestDate;
+    y.note=note; y.url=url; y.updatedAt=new Date().toLocaleTimeString('ko-KR');
+    y.interestCycle=interestCycle; y.interestDate=interestDate;
   }
   saveYields(); closeYieldModal(); renderYieldGrid(); renderDefiSummary();
 }
@@ -1180,13 +1309,73 @@ function deleteYield(id){
 
 // ── 이자 주기 select 핸들러 ───────────────────────────
 function handleInterestCycleChange(sel){
-  document.getElementById('interestCustomDateWrap').style.display=(sel.value==='custom')?'block':'none';
+  const showDate=['weekly','monthly','quarterly'].includes(sel.value);
+  document.getElementById('interestDateWrap').style.display=showDate?'':'none';
+  // 분기/매월은 월 선택 숨김 (매일 기준이므로 일만)
+  const monthSel=document.getElementById('yieldModalInterestMonth');
+  if(monthSel) monthSel.style.display=sel.value==='quarterly'?'':'none';
+}
+
+// ── 다음 지급일 계산 ──────────────────────────────────
+function calcNextPayDate(cycle, interestDate){
+  if(!cycle||!interestDate) return null;
+  const base=new Date(interestDate);
+  if(isNaN(base.getTime())) return null;
+  const today=new Date(); today.setHours(0,0,0,0);
+  let next=new Date(base);
+
+  if(cycle==='weekly'){
+    while(next<=today) next=new Date(next.getTime()+7*24*3600*1000);
+  } else if(cycle==='monthly'){
+    next=new Date(today.getFullYear(),today.getMonth(),base.getDate());
+    if(next<=today) next=new Date(today.getFullYear(),today.getMonth()+1,base.getDate());
+  } else if(cycle==='quarterly'){
+    next=new Date(today.getFullYear(),today.getMonth(),base.getDate());
+    while(next<=today) next=new Date(next.getFullYear(),next.getMonth()+3,base.getDate());
+  }
+  return next;
+}
+
+function fmtDateKo(d){
+  if(!d) return '--';
+  return `${d.getMonth()+1}월 ${d.getDate()}일`;
+}
+
+function calcDday(next){
+  if(!next) return null;
+  const today=new Date(); today.setHours(0,0,0,0);
+  return Math.ceil((next-today)/(1000*60*60*24));
+}
+
+// ── 브라우저 알림 체크 ────────────────────────────────
+function checkPaymentAlerts(){
+  if(!('Notification' in window)) return;
+  yieldData.forEach(y=>{
+    if(!['weekly','monthly','quarterly'].includes(y.interestCycle)) return;
+    if(!y.interestDate) return;
+    const next=calcNextPayDate(y.interestCycle,y.interestDate);
+    if(!next) return;
+    const dday=calcDday(next);
+    if(dday===0){
+      if(Notification.permission==='granted'){
+        new Notification(`💰 ${y.name} 이자 지급일!`,{body:`오늘 ${fmtDateKo(next)} 이자가 지급됩니다.`});
+      } else if(Notification.permission!=='denied'){
+        Notification.requestPermission().then(p=>{
+          if(p==='granted') new Notification(`💰 ${y.name} 이자 지급일!`,{body:`오늘 이자가 지급됩니다.`});
+        });
+      }
+    } else if(dday===1){
+      if(Notification.permission==='granted'){
+        new Notification(`📅 ${y.name} 이자 내일 지급`,{body:`내일 ${fmtDateKo(next)} 이자가 지급됩니다.`});
+      }
+    }
+  });
 }
 
 // ── 복리 예상 수익 계산 헬퍼 ─────────────────────────
 function calcCompoundYield(depositQty, apy, interestCycle, interestDate){
   if(!depositQty||!apy||!interestCycle||!interestDate) return null;
-  const cycleMap={daily:365,weekly:52,monthly:12,quarterly:4,yearly:1,custom:12};
+  const cycleMap={daily:365,weekly:52,monthly:12,quarterly:4};
   const n=cycleMap[interestCycle]||12;
   const r=apy/100;
   const start=new Date(interestDate);
@@ -1195,11 +1384,7 @@ function calcCompoundYield(depositQty, apy, interestCycle, interestDate){
   const yearsElapsed=(now-start)/(365.25*24*3600*1000);
   if(yearsElapsed<=0) return null;
   const compounded=depositQty*Math.pow(1+r/n,n*yearsElapsed);
-  return {
-    currentQty: compounded,
-    earned: compounded-depositQty,
-    yearsElapsed
-  };
+  return {currentQty:compounded, earned:compounded-depositQty, yearsElapsed};
 }
 
 // ── 가져오기 / 내보내기 ───────────────────────────────
@@ -1278,7 +1463,9 @@ async function fetchYields(){
 // ── 초기화 ────────────────────────────────────────────
 fetchPrices();
 fetchYields();
+checkPaymentAlerts();
 setInterval(fetchPrices,60000);
+setInterval(checkPaymentAlerts,3600000); // 1시간마다 알림 체크
 </script>
 </body>
 </html>
