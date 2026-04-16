@@ -808,7 +808,8 @@ function togglePriceMask(key){ maskedPrice[key]=!maskedPrice[key]; renderYieldGr
 function renderYieldGrid(){
   const grid=document.getElementById('yieldGrid');
   if(!yieldData.length){
-    grid.innerHTML='<div style="padding:32px;color:var(--muted);font-size:13px;text-align:center">등록된 프로토콜이 없습니다.</div>';
+    grid.innerHTML='<div style="padding:32px;color:var(--muted);font-size:13px;text-align:center">등록된 프로토콜이 없습니다.</div>'
+      +`<div class="add-yield-row" onclick="openYieldModalNew()"><span style="font-size:16px">+</span> 프로토콜 추가</div>`;
     document.getElementById('yieldTotalBar').innerHTML='';
     return;
   }
